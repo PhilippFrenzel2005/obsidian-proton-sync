@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { Data, Effect, Option } from 'effect';
-import { Platform, requestUrl, type RequestUrlResponse } from 'obsidian';
+import { requestUrl, type RequestUrlResponse } from 'obsidian';
 import { BehaviorSubject, distinctUntilChanged } from 'rxjs';
 
 import type {
@@ -15,14 +15,13 @@ import type { CaptchaVerification } from '../../ui/modals/captcha-modal';
 import type { MasterPasswordModalMode } from '../../ui/modals/master-password-modal';
 import { PROTON_BASE_URL } from '../Constants';
 import { deleteJson, getJson, postJson, ProtonApiHttpError } from '../ProtonApiClient';
+import { getExternalCaptchaUrl } from './CaptchaChallenge';
 import type { ProtonSession } from './ProtonSession';
 import type { ProtonAuthInfo, ProtonSrpProofs } from './ProtonSrp';
 import { buildSrpProofs, computeKeyPasswordFromSalt, decodeBase64, encodeBase64 } from './ProtonSrp';
 const AUTH_SCOPE = 'full locked';
 
-// this is only used on Mobile where the CSP policy for frame-ancestors prevents us
-// from properly displaying the captcha challenge
-const CAPTCHA_FALLBACK_APPVERSION = 'Other';
+const AUTH_REQUEST_TIMEOUT_MS = 30_000;
 
 export { POST_SYNC_MEMORY_CLEAR_DELAY_MS } from '../../services/EncryptedSecretStore';
 
@@ -160,6 +159,7 @@ class ProtonSessionService {
     }).pipe(
       Effect.catchAll(e =>
         Effect.gen(this, function* () {
+          this.#authStatusSubject.next('error');
           if (authResponse) {
             // destroy the session if it was successfully created
             yield* this.#destroySession({
@@ -167,7 +167,6 @@ class ProtonSessionService {
               accessToken: authResponse.AccessToken
             });
           }
-          this.#authStatusSubject.next('error');
           return yield* e;
         })
       )
@@ -202,35 +201,28 @@ class ProtonSessionService {
     ProtonApiCommunicationError | CaptchaRequiredError | CaptchaDataNotProvidedError
   > {
     return Effect.gen(this, function* () {
-      let appVersionHeader = this.appVersionHeader;
       let authResponse: Option.Option<ProtonAuthResponse> = Option.none();
       let captchaData: Option.Option<CaptchaVerification> = Option.none();
 
       while (Option.isNone(authResponse)) {
-        const authResponseRaw = yield* this.#authenticate(authInfo, email, appVersionHeader, proofs, captchaData);
+        const authResponseRaw = yield* this.#authenticate(authInfo, email, this.appVersionHeader, proofs, captchaData);
 
         if (this.#requiresCaptcha(authResponseRaw)) {
-          if (Platform.isMobile) {
-            // on mobile, we can't display the captcha challenge properly,
-            // we try to bypass it by setting a fallback app version
-            appVersionHeader = CAPTCHA_FALLBACK_APPVERSION;
-            continue;
-          } else {
-            // on desktop, the captcha challenge can be handled normally
-            // we elicit the captcha token from the user in a modal
-            const captchaUrl = this.#extractCaptchaUrl(authResponseRaw.json);
-            if (Option.isNone(captchaUrl)) {
-              return yield* new CaptchaDataNotProvidedError();
-            }
-
-            captchaData = yield* delegates.requestCaptchaChallenge(captchaUrl.value);
-
-            if (Option.isNone(captchaData)) {
-              return yield* new CaptchaRequiredError();
-            }
-
-            continue;
+          // At most one user challenge and one login retry on every platform.
+          // Repeated CAPTCHA responses must never create a retry loop.
+          if (Option.isSome(captchaData)) {
+            return yield* new CaptchaRequiredError();
           }
+
+          const captchaUrl = this.#extractCaptchaUrl(authResponseRaw.json);
+          if (Option.isNone(captchaUrl)) {
+            return yield* new CaptchaDataNotProvidedError();
+          }
+          captchaData = yield* delegates.requestCaptchaChallenge(captchaUrl.value);
+          if (Option.isNone(captchaData)) {
+            return yield* new CaptchaRequiredError();
+          }
+          continue;
         }
 
         if (authResponseRaw.status >= 400) {
@@ -483,7 +475,8 @@ class ProtonSessionService {
       return Option.none();
     }
 
-    return Option.some(url);
+    const externalUrl = getExternalCaptchaUrl(url);
+    return externalUrl ? Option.some(externalUrl.toString()) : Option.none();
   }
 
   #requiresTwoFactorCode(authResponse: ProtonAuthResponse): boolean {
@@ -592,18 +585,22 @@ class ProtonSessionService {
     appVersionHeader: string,
     headers?: Record<string, string>
   ): Effect.Effect<RequestUrlResponse, ProtonApiCommunicationError> {
-    return Effect.promise(() =>
-      requestUrl({
-        url: `${PROTON_BASE_URL}${path}`,
-        method: 'POST',
-        contentType: 'application/json',
-        headers: {
-          'x-pm-appversion': appVersionHeader,
-          ...(headers ?? {})
-        },
-        body: JSON.stringify(body),
-        throw: false
-      })
+    return Effect.tryPromise({
+      try: () =>
+        requestUrl({
+          url: `${PROTON_BASE_URL}${path}`,
+          method: 'POST',
+          contentType: 'application/json',
+          headers: {
+            'x-pm-appversion': appVersionHeader,
+            ...(headers ?? {})
+          },
+          body: JSON.stringify(body),
+          throw: false
+        }),
+      catch: () => new ProtonApiCommunicationError()
+    }).pipe(
+      Effect.timeoutFail({ duration: AUTH_REQUEST_TIMEOUT_MS, onTimeout: () => new ProtonApiCommunicationError() })
     );
   }
 
