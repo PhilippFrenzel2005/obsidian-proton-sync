@@ -18,8 +18,8 @@ export const en = {
         captchaRequired: 'Captcha is required to login. Login aborted.',
         twoFactorRequired: 'Two-factor code is required to login. Login aborted.',
         unsupportedTwoFactor:
-          'This plugin supports authenticator codes, but not security-key-only sign-in. ' +
-          'Keep your security key enabled. To use this plugin, an authenticator-code method must also be configured in Proton.',
+          'Password-based sign-in supports authenticator codes. For security keys, use browser sign-in. ' +
+          'Keep your security key enabled and use Sign in in browser instead.',
         mailboxPasswordRequired: 'Mailbox password is required to login. Login aborted.',
         masterPasswordRequired: 'Master password is required to protect your session. Login aborted.',
         secureStorageFailed: 'Failed to securely persist encrypted credentials. Login aborted.',
@@ -102,6 +102,7 @@ export const en = {
     disclosureCredentials:
       'You will be asked to enter your credentials into this plugin. Passwords or other sensitive information are never stored or logged.',
     connectionStatus: {
+      browserButton: 'Sign in in browser (security key)',
       name: 'Connection status',
       connectButton: 'Connect',
       connectingButton: 'Connecting...',
@@ -154,6 +155,18 @@ export const en = {
     }
   },
   modals: {
+    browserSignIn: {
+      title: 'Sign in with Proton in your browser',
+      preparing: 'Preparing a private sign-in link…',
+      help:
+        'Open Proton Account and sign in with your security key or passkey. ' +
+        'Your Proton password and security-key verification stay on Proton’s website.',
+      openBrowser: 'Open Proton sign-in',
+      waiting:
+        'Keep this dialog and Obsidian open. After you approve sign-in, return here. ' +
+        'The plugin will ask for a local master password to protect your saved session. ' +
+        'This link expires after 10 minutes. Do not share or copy it into chat.'
+    },
     shared: {
       credentialsDisclosure: '⚠️ Your credentials are never stored or logged.'
     },

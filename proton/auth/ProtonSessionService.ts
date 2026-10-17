@@ -15,6 +15,12 @@ import type { CaptchaVerification } from '../../ui/modals/captcha-modal';
 import type { MasterPasswordModalMode } from '../../ui/modals/master-password-modal';
 import { PROTON_BASE_URL } from '../Constants';
 import { deleteJson, getJson, postJson, ProtonApiHttpError } from '../ProtonApiClient';
+import {
+  authenticateInBrowser,
+  BrowserSignInError,
+  type BrowserSignInResult,
+  revokeBrowserSession
+} from './BrowserSignIn';
 import { getExternalCaptchaUrl } from './CaptchaChallenge';
 import type { ProtonSession } from './ProtonSession';
 import type { ProtonAuthInfo, ProtonSrpProofs } from './ProtonSrp';
@@ -91,6 +97,52 @@ class ProtonSessionService {
   readonly #encryptedSecretStore = getEncryptedSecretStore();
 
   public constructor(public readonly appVersionHeader: string) {}
+
+  public signInViaBrowser(
+    onSignInUrl: (url: string) => void,
+    requestMasterPassword: () => Effect.Effect<Option.Option<string>, never>,
+    onBrowserComplete: () => void,
+    signal: AbortSignal
+  ): Effect.Effect<void, BrowserSignInFailure | MasterPasswordRequiredError | SecretEncryptionFailedError> {
+    let browserResult: BrowserSignInResult | undefined;
+    return Effect.gen(this, function* () {
+      this.#authStatusSubject.next('connecting');
+      browserResult = yield* Effect.tryPromise({
+        try: () => authenticateInBrowser(this.appVersionHeader, onSignInUrl, signal),
+        catch: error =>
+          new BrowserSignInFailure({
+            message: error instanceof BrowserSignInError ? error.message : 'Browser sign-in failed.'
+          })
+      });
+      if (signal.aborted) {
+        return yield* new BrowserSignInFailure({ message: 'Browser sign-in cancelled.' });
+      }
+      onBrowserComplete();
+      const masterPassword = yield* this.#resolveMasterPassword(requestMasterPassword());
+      if (signal.aborted) {
+        return yield* new BrowserSignInFailure({ message: 'Browser sign-in cancelled.' });
+      }
+      yield* this.#persistEncryptedSessionData(browserResult.session, browserResult.saltedPassphrases, masterPassword);
+      if (signal.aborted) {
+        yield* this.#encryptedSecretStore.clearSessionData();
+        return yield* new BrowserSignInFailure({ message: 'Browser sign-in cancelled.' });
+      }
+      getObsidianSettingsStore().set('accountEmail', browserResult.accountName);
+      this.#encryptedSecretStore.cancelScheduledLock();
+      this.#authStatusSubject.next('connected');
+    }).pipe(
+      Effect.catchAll(error =>
+        Effect.gen(this, function* () {
+          this.#authStatusSubject.next('error');
+          if (browserResult) {
+            const failedSession = browserResult.session;
+            yield* Effect.promise(() => revokeBrowserSession(this.appVersionHeader, failedSession));
+          }
+          return yield* Effect.fail(error);
+        })
+      )
+    );
+  }
 
   public signIn(
     email: string,
@@ -717,6 +769,7 @@ export class CryptographyError extends Data.TaggedError('CryptographyError')<{ m
 }
 export class TwoFactorCodeRequiredError extends Data.TaggedError('TwoFactorCodeRequiredError') {}
 export class UnsupportedTwoFactorMethodError extends Data.TaggedError('UnsupportedTwoFactorMethodError') {}
+export class BrowserSignInFailure extends Data.TaggedError('BrowserSignInFailure')<{ message: string }> {}
 export class EncryptionPasswordRequiredError extends Data.TaggedError('EncryptionPasswordRequiredError') {}
 export class MasterPasswordRequiredError extends Data.TaggedError('MasterPasswordRequiredError') {}
 export class CaptchaRequiredError extends Data.TaggedError('CaptchaRequiredError') {}
