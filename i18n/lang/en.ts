@@ -17,6 +17,9 @@ export const en = {
         captchaDataNotProvided: 'Captcha data was not provided. Login aborted.',
         captchaRequired: 'Captcha is required to login. Login aborted.',
         twoFactorRequired: 'Two-factor code is required to login. Login aborted.',
+        unsupportedTwoFactor:
+          'This plugin supports authenticator codes, but not security-key-only sign-in. ' +
+          'Keep your security key enabled. To use this plugin, an authenticator-code method must also be configured in Proton.',
         mailboxPasswordRequired: 'Mailbox password is required to login. Login aborted.',
         masterPasswordRequired: 'Master password is required to protect your session. Login aborted.',
         secureStorageFailed: 'Failed to securely persist encrypted credentials. Login aborted.',

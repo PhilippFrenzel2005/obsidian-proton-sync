@@ -42,3 +42,8 @@ reconnect to request a fresh challenge. Cancel closes the attempt without retryi
 Initial authentication requests time out after 30 seconds. No verification URLs, passwords,
 or human-verification tokens are logged by this flow. Signing in does not start
 a push or pull.
+
+The plugin currently supports six-digit authenticator codes for 2FA, not
+security-key-only (FIDO2/passkey) sign-in. Such accounts are rejected with an
+explicit message before account-key loading. Keep security keys enabled; adding
+an authenticator-code method is an account-security decision for the user.

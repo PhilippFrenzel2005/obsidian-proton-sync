@@ -232,4 +232,35 @@ describe('CAPTCHA login recovery', () => {
       expect(mocks.persist).not.toHaveBeenCalled();
     }
   );
+
+  it('stops security-key-only login before fetching keys and revokes the restricted session', async () => {
+    mocks.request
+      .mockResolvedValueOnce({ status: 200, json: {} })
+      .mockResolvedValueOnce({ ...authSuccess, json: { ...authSuccess.json, '2FA': { Enabled: 2 } } })
+      .mockResolvedValue({ status: 200, json: {} });
+    const { initProtonSessionService } = await import('../proton/auth/ProtonSessionService');
+    const prompts = delegates();
+    const result = await Effect.runPromise(
+      Effect.either(initProtonSessionService('test').signIn('test@example.test', 'dummy', prompts))
+    );
+    expect(Either.isLeft(result) && result.left._tag).toBe('UnsupportedTwoFactorMethodError');
+    expect(prompts.requestTwoFactorCode).not.toHaveBeenCalled();
+    expect(mocks.persist).not.toHaveBeenCalled();
+    expect(mocks.request).toHaveBeenCalledTimes(3);
+    expect(mocks.request.mock.calls[2][0]).toMatchObject({ method: 'DELETE' });
+    expect(mocks.request.mock.calls.some(([request]) => String(request.url).includes('/keys/salts'))).toBe(false);
+  });
+
+  it('still requests an authenticator code when both 2FA methods are enabled', async () => {
+    mocks.request
+      .mockResolvedValueOnce({ status: 200, json: {} })
+      .mockResolvedValueOnce({ ...authSuccess, json: { ...authSuccess.json, '2FA': { Enabled: 3 } } })
+      .mockResolvedValueOnce({ status: 200, json: {} })
+      .mockResolvedValueOnce({ status: 200, json: { KeySalts: [] } });
+    const { initProtonSessionService } = await import('../proton/auth/ProtonSessionService');
+    const prompts = delegates();
+    await Effect.runPromise(initProtonSessionService('test').signIn('test@example.test', 'dummy', prompts));
+    expect(prompts.requestTwoFactorCode).toHaveBeenCalledOnce();
+    expect(mocks.persist).toHaveBeenCalledOnce();
+  });
 });
