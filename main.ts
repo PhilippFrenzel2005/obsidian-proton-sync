@@ -132,6 +132,8 @@ export default class ProtonDriveSyncPlugin extends Plugin {
           CaptchaDataNotProvidedError: () => Effect.succeed(new Notice(t.main.notices.login.captchaDataNotProvided)),
           CaptchaRequiredError: () => Effect.succeed(new Notice(t.main.notices.login.captchaRequired)),
           TwoFactorCodeRequiredError: () => Effect.succeed(new Notice(t.main.notices.login.twoFactorRequired)),
+          UnsupportedTwoFactorMethodError: () =>
+            Effect.succeed(new Notice(t.main.notices.login.unsupportedTwoFactor, 15000)),
           EncryptionPasswordRequiredError: () =>
             Effect.succeed(new Notice(t.main.notices.login.mailboxPasswordRequired)),
           MasterPasswordRequiredError: () => Effect.succeed(new Notice(t.main.notices.login.masterPasswordRequired)),

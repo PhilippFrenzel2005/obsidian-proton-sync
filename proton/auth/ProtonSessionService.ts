@@ -103,6 +103,7 @@ class ProtonSessionService {
     | CaptchaRequiredError
     | CaptchaDataNotProvidedError
     | TwoFactorCodeRequiredError
+    | UnsupportedTwoFactorMethodError
     | EncryptionPasswordRequiredError
     | MasterPasswordRequiredError
     | SecretEncryptionFailedError,
@@ -118,6 +119,10 @@ class ProtonSessionService {
       authResponse = yield* this.#authenticateWithCaptcha(authInfo, email, proofs, delegates);
 
       yield* this.#verifyServerProof(authResponse.ServerProof, proofs.expectedServerProof);
+
+      if ((authResponse['2FA']?.Enabled ?? 0) > 0 && !this.#requiresTwoFactorCode(authResponse)) {
+        return yield* new UnsupportedTwoFactorMethodError();
+      }
 
       if (this.#requiresTwoFactorCode(authResponse)) {
         const twoFactorCode = yield* this.#resolveTwoFactorCode(delegates.requestTwoFactorCode);
@@ -666,6 +671,7 @@ export type ProtonSessionError =
   | ProtonApiCommunicationError
   | CryptographyError
   | TwoFactorCodeRequiredError
+  | UnsupportedTwoFactorMethodError
   | EncryptionPasswordRequiredError
   | MasterPasswordRequiredError
   | CaptchaRequiredError
@@ -710,6 +716,7 @@ export class CryptographyError extends Data.TaggedError('CryptographyError')<{ m
   }
 }
 export class TwoFactorCodeRequiredError extends Data.TaggedError('TwoFactorCodeRequiredError') {}
+export class UnsupportedTwoFactorMethodError extends Data.TaggedError('UnsupportedTwoFactorMethodError') {}
 export class EncryptionPasswordRequiredError extends Data.TaggedError('EncryptionPasswordRequiredError') {}
 export class MasterPasswordRequiredError extends Data.TaggedError('MasterPasswordRequiredError') {}
 export class CaptchaRequiredError extends Data.TaggedError('CaptchaRequiredError') {}
