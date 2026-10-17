@@ -157,8 +157,25 @@ describe('CAPTCHA login recovery', () => {
     const sub = service.authState$.subscribe(state => states.push(state));
     const result = await Effect.runPromise(Effect.either(service.signIn('test@example.test', 'dummy', delegates())));
     expect(Either.isLeft(result) && result.left._tag).toBe('ProtonApiCommunicationError');
+    expect(Either.isLeft(result) && result.left.message).toBe('/auth/v4/info: network request failed');
     expect(states).toEqual(['disconnected', 'connecting', 'error']);
     sub.unsubscribe();
+  });
+
+  it.each(['/auth/v4/info', '/auth/v4'])('reports only safe HTTP diagnostics for %s', async path => {
+    if (path === '/auth/v4') {
+      mocks.request.mockResolvedValueOnce({ status: 200, json: {} });
+    }
+    mocks.request.mockResolvedValue({
+      status: 429,
+      json: { Code: 2028, Error: 'private raw response', Details: { token: 'private-token' } }
+    });
+    const { initProtonSessionService } = await import('../proton/auth/ProtonSessionService');
+    const result = await Effect.runPromise(
+      Effect.either(initProtonSessionService('test').signIn('test@example.test', 'dummy', delegates()))
+    );
+    expect(Either.isLeft(result) && result.left.message).toBe(`${path}: HTTP 429, API code 2028`);
+    expect(JSON.stringify(result)).not.toContain('private');
   });
 
   it('times out a stalled network request instead of staying Connecting forever', async () => {

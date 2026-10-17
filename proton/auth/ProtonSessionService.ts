@@ -226,7 +226,9 @@ class ProtonSessionService {
         }
 
         if (authResponseRaw.status >= 400) {
-          return yield* new ProtonApiCommunicationError();
+          return yield* new ProtonApiCommunicationError({
+            message: formatAuthHttpFailure('/auth/v4', authResponseRaw)
+          });
         }
 
         authResponse = Option.some(authResponseRaw.json as ProtonAuthResponse);
@@ -572,7 +574,7 @@ class ProtonSessionService {
       const response = yield* this.#requestRaw(path, body, this.appVersionHeader, headers);
 
       if (response.status >= 400) {
-        return yield* new ProtonApiCommunicationError();
+        return yield* new ProtonApiCommunicationError({ message: formatAuthHttpFailure(path, response) });
       }
 
       return response.json as T;
@@ -598,9 +600,12 @@ class ProtonSessionService {
           body: JSON.stringify(body),
           throw: false
         }),
-      catch: () => new ProtonApiCommunicationError()
+      catch: () => new ProtonApiCommunicationError({ message: `${path}: network request failed` })
     }).pipe(
-      Effect.timeoutFail({ duration: AUTH_REQUEST_TIMEOUT_MS, onTimeout: () => new ProtonApiCommunicationError() })
+      Effect.timeoutFail({
+        duration: AUTH_REQUEST_TIMEOUT_MS,
+        onTimeout: () => new ProtonApiCommunicationError({ message: `${path}: request timed out after 30 seconds` })
+      })
     );
   }
 
@@ -674,7 +679,21 @@ function isSessionRejection(error: unknown): boolean {
   return error instanceof ProtonApiHttpError && SESSION_REJECTION_STATUSES.has(error.status);
 }
 
-export class ProtonApiCommunicationError extends Data.TaggedError('ProtonApiCommunicationError') {}
+/** Only the fixed route, HTTP status and numeric API code are safe to display. */
+function formatAuthHttpFailure(path: string, response: RequestUrlResponse): string {
+  const payload: unknown = response.json;
+  const code = typeof payload === 'object' && payload !== null && 'Code' in payload ? payload.Code : undefined;
+  const apiCode = typeof code === 'number' && Number.isSafeInteger(code) ? `, API code ${code}` : '';
+  return `${path}: HTTP ${response.status}${apiCode}`;
+}
+
+export class ProtonApiCommunicationError extends Data.TaggedError('ProtonApiCommunicationError')<{
+  message?: string;
+}> {
+  public constructor(options: { message?: string } = {}) {
+    super(options);
+  }
+}
 export class CryptographyError extends Data.TaggedError('CryptographyError') {}
 export class TwoFactorCodeRequiredError extends Data.TaggedError('TwoFactorCodeRequiredError') {}
 export class EncryptionPasswordRequiredError extends Data.TaggedError('EncryptionPasswordRequiredError') {}
