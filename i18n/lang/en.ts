@@ -209,7 +209,13 @@ export const en = {
     },
     captcha: {
       title: 'CAPTCHA verification required',
-      help: 'Solve the CAPTCHA challenge. The dialog will close automatically once the challenge is successfully completed.',
+      help:
+        'Open Proton verification in your browser and complete the CAPTCHA there. ' +
+        'Then return to Obsidian and choose Continue. Keep this dialog open while verifying.',
+      openBrowser: 'Open CAPTCHA in browser',
+      continueButton: 'I completed verification — Continue',
+      invalidUrl:
+        'Proton did not provide a supported verification link. Cancel and reconnect to request a fresh challenge.',
       iframeTitle: 'Proton CAPTCHA challenge',
       reload: 'Reload CAPTCHA'
     },
