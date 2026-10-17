@@ -192,4 +192,44 @@ describe('CAPTCHA login recovery', () => {
     expect(states.at(-1)).toBe('error');
     sub.unsubscribe();
   });
+
+  it.each([
+    ['', 'Authentication response is missing the server proof'],
+    ['BA==', 'Server proof verification failed (proof mismatch)']
+  ])('identifies server-proof failures before requesting 2FA', async (proof, message) => {
+    mocks.request
+      .mockResolvedValueOnce({ status: 200, json: {} })
+      .mockResolvedValueOnce({ ...authSuccess, json: { ...authSuccess.json, ServerProof: proof } })
+      .mockResolvedValue({ status: 200, json: {} });
+    const { initProtonSessionService } = await import('../proton/auth/ProtonSessionService');
+    const prompts = delegates();
+    const result = await Effect.runPromise(
+      Effect.either(initProtonSessionService('test').signIn('test@example.test', 'dummy', prompts))
+    );
+    expect(Either.isLeft(result) && result.left.message).toBe(message);
+    expect(prompts.requestTwoFactorCode).not.toHaveBeenCalled();
+    expect(mocks.persist).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    'identifies post-authentication HTTP failures without raw details (2fa=%s)',
+    async twoFactor => {
+      mocks.request
+        .mockResolvedValueOnce({ status: 200, json: {} })
+        .mockResolvedValueOnce({
+          ...authSuccess,
+          json: { ...authSuccess.json, '2FA': { Enabled: twoFactor ? 1 : 0 } }
+        })
+        .mockResolvedValueOnce({ status: 403, json: { Error: 'private raw message', Details: { token: 'secret' } } })
+        .mockResolvedValue({ status: 200, json: {} });
+      const { initProtonSessionService } = await import('../proton/auth/ProtonSessionService');
+      const result = await Effect.runPromise(
+        Effect.either(initProtonSessionService('test').signIn('test@example.test', 'dummy', delegates()))
+      );
+      const route = twoFactor ? '/auth/v4/2fa' : '/core/v4/keys/salts';
+      expect(Either.isLeft(result) && result.left.message).toBe(`${route}: HTTP 403`);
+      expect(JSON.stringify(result)).not.toContain('private');
+      expect(mocks.persist).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -447,7 +447,7 @@ class ProtonSessionService {
           TwoFactorCode: twoFactorCode
         });
       },
-      catch: () => new ProtonApiCommunicationError()
+      catch: error => new ProtonApiCommunicationError({ message: formatAuthenticatedFailure('/auth/v4/2fa', error) })
     });
   }
 
@@ -537,21 +537,24 @@ class ProtonSessionService {
   ): Effect.Effect<ProtonSrpProofs, CryptographyError> {
     return Effect.tryPromise({
       try: () => buildSrpProofs(authInfo, email, password),
-      catch: () => new CryptographyError()
+      catch: () => new CryptographyError({ message: 'Password proof generation failed' })
     });
   }
 
   #verifyServerProof(serverProof: string, expected: Uint8Array): Effect.Effect<void, CryptographyError> {
     return Effect.try({
       try: (): void => {
+        if (typeof serverProof !== 'string' || !serverProof) {
+          throw new CryptographyError({ message: 'Authentication response is missing the server proof' });
+        }
         const decoded = decodeBase64(serverProof);
         if (decoded.length !== expected.length) {
-          throw new CryptographyError();
+          throw new CryptographyError({ message: 'Server proof verification failed (length mismatch)' });
         }
 
         for (let index = 0; index < decoded.length; index += 1) {
           if (decoded[index] !== expected[index]) {
-            throw new CryptographyError();
+            throw new CryptographyError({ message: 'Server proof verification failed (proof mismatch)' });
           }
         }
       },
@@ -560,7 +563,7 @@ class ProtonSessionService {
           return error;
         }
 
-        return new CryptographyError();
+        return new CryptographyError({ message: 'Server proof verification failed (invalid response)' });
       }
     });
   }
@@ -630,7 +633,8 @@ class ProtonSessionService {
 
         return map;
       },
-      catch: () => new ProtonApiCommunicationError()
+      catch: error =>
+        new ProtonApiCommunicationError({ message: formatAuthenticatedFailure('/core/v4/keys/salts', error) })
     });
   }
 
@@ -687,6 +691,12 @@ function formatAuthHttpFailure(path: string, response: RequestUrlResponse): stri
   return `${path}: HTTP ${response.status}${apiCode}`;
 }
 
+function formatAuthenticatedFailure(path: string, error: unknown): string {
+  return error instanceof ProtonApiHttpError
+    ? `${path}: HTTP ${error.status}`
+    : `${path}: network request or response processing failed`;
+}
+
 export class ProtonApiCommunicationError extends Data.TaggedError('ProtonApiCommunicationError')<{
   message?: string;
 }> {
@@ -694,7 +704,11 @@ export class ProtonApiCommunicationError extends Data.TaggedError('ProtonApiComm
     super(options);
   }
 }
-export class CryptographyError extends Data.TaggedError('CryptographyError') {}
+export class CryptographyError extends Data.TaggedError('CryptographyError')<{ message?: string }> {
+  public constructor(options: { message?: string } = {}) {
+    super(options);
+  }
+}
 export class TwoFactorCodeRequiredError extends Data.TaggedError('TwoFactorCodeRequiredError') {}
 export class EncryptionPasswordRequiredError extends Data.TaggedError('EncryptionPasswordRequiredError') {}
 export class MasterPasswordRequiredError extends Data.TaggedError('MasterPasswordRequiredError') {}
